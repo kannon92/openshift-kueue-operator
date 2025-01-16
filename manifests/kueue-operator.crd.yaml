@@ -184,7 +184,7 @@ spec:
                         type: object
                     type: object
                   waitForPodsReady:
-                    description: WaitForPodsReady configures gang admission optional
+                    description: WaitForPodsReady configures gang admission
                     properties:
                       blockAdmission:
                         description: BlockAdmission when true, cluster queue will

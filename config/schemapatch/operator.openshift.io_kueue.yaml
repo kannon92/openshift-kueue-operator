@@ -131,7 +131,7 @@ spec:
                                     type: string
                               x-kubernetes-map-type: atomic
                     waitForPodsReady:
-                      description: WaitForPodsReady configures gang admission optional
+                      description: WaitForPodsReady configures gang admission
                       type: object
                       properties:
                         blockAdmission:

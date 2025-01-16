@@ -35,12 +35,13 @@ type KueueOperandSpec struct {
 
 type KueueConfiguration struct {
 	// WaitForPodsReady configures gang admission
-	// optional
+	// +optional
 	WaitForPodsReady *configapi.WaitForPodsReady `json:"waitForPodsReady,omitempty"`
 	// Integrations are the types of integrations Kueue will manager
 	// Required
 	Integrations configapi.Integrations `json:"integrations"`
 	// Feature gates are advanced features for Kueue
+	// +optional
 	FeatureGates map[string]bool `json:"featureGates,omitempty"`
 }
 
