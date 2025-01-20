@@ -4,7 +4,7 @@ metadata:
   labels:
     app.kubernetes.io/name: kueue-operator
     app.kubernetes.io/managed-by: kustomize
-  name: kueue-openshift-default
+  name: cluster
   namespace: openshift-kueue-operator
 spec:
   kueue:

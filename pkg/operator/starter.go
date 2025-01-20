@@ -11,6 +11,7 @@ import (
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
 	"github.com/openshift/library-go/pkg/operator/loglevel"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
+	apiextv1 "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
@@ -58,6 +59,11 @@ func RunOperator(ctx context.Context, cc *controllercmd.ControllerContext) error
 		return err
 	}
 
+	crdClient, err := apiextv1.NewForConfig(cc.KubeConfig)
+	if err != nil {
+		return err
+	}
+
 	targetConfigReconciler, err := NewTargetConfigReconciler(
 		ctx,
 		operatorConfigClient.KueueV1alpha1(),
@@ -67,6 +73,7 @@ func RunOperator(ctx context.Context, cc *controllercmd.ControllerContext) error
 		kubeClient,
 		osrClient,
 		dynamicClient,
+		crdClient,
 		cc.EventRecorder,
 	)
 	if err != nil {
