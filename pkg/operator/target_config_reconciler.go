@@ -145,6 +145,26 @@ func (c TargetConfigReconciler) sync(item queueItem) error {
 
 	}
 
+	crdAnnotations, crdErr := c.manageCustomResources(kueue)
+
+	if crdErr != nil {
+		return crdErr
+	}
+
+	for key, val := range crdAnnotations {
+		specAnnotations[key] = val
+	}
+
+	if sa, _, err := c.manageServiceAccount(kueue); err != nil {
+		return err
+	} else {
+		resourceVersion := "0"
+		if sa != nil { // SyncConfigMap can return nil
+			resourceVersion = sa.ObjectMeta.ResourceVersion
+		}
+		specAnnotations["serviceaccounts/kueue-operator"] = resourceVersion
+	}
+
 	if roleBindings, _, err := c.manageRole(kueue, "assets/kueue-operator/role-leader-election.yaml"); err != nil {
 		return err
 	} else {
@@ -196,35 +216,42 @@ func (c TargetConfigReconciler) sync(item queueItem) error {
 	}
 
 	annotations, err := c.manageClusterRoles(kueue)
-
 	if err != nil {
 		return err
 	}
-
 	for key, val := range annotations {
 		specAnnotations[key] = val
 	}
 
-	crdAnnotations, crdErr := c.manageCustomResources(kueue)
-
-	if crdErr != nil {
-		return crdErr
-	}
-
-	for key, val := range crdAnnotations {
-		specAnnotations[key] = val
-	}
-
-	deployment, _, err := c.manageDeployment(kueue, specAnnotations)
-	if err != nil {
+	if service, _, err := c.manageClusterRoleBindings(kueue, "assets/kueue-operator/clusterrolebinding-kube-proxy.yaml"); err != nil {
 		return err
+	} else {
+		resourceVersion := "0"
+		if service != nil { // SyncConfigMap can return nil
+			resourceVersion = service.ObjectMeta.ResourceVersion
+		}
+		specAnnotations["clusterrolebinding/webhook-service"] = resourceVersion
 	}
 
+	if service, _, err := c.manageClusterRoleBindings(kueue, "assets/kueue-operator/clusterrolebinding-kueue-manager-role.yaml"); err != nil {
+		return err
+	} else {
+		resourceVersion := "0"
+		if service != nil { // SyncConfigMap can return nil
+			resourceVersion = service.ObjectMeta.ResourceVersion
+		}
+		specAnnotations["clusterrolebinding/webhook-service"] = resourceVersion
+	}
 	if _, _, err := c.manageMutatingWebhook(kueue); err != nil {
 		return err
 	}
 
 	if _, _, err := c.manageValidatingWebhook(kueue); err != nil {
+		return err
+	}
+
+	deployment, _, err := c.manageDeployment(kueue, specAnnotations)
+	if err != nil {
 		return err
 	}
 
@@ -263,6 +290,23 @@ func (c *TargetConfigReconciler) buildAndApplyConfigMap(oldCfgMap *v1.ConfigMap,
 	klog.InfoS("Configmap difference detected", "Namespace", operatorclient.OperatorNamespace, "ConfigMap", KueueConfigMap)
 	return resourceapply.ApplyConfigMap(c.ctx, c.kubeClient.CoreV1(), c.eventRecorder, cfgMap)
 
+}
+
+func (c *TargetConfigReconciler) manageServiceAccount(kueue *kueuev1alpha1.Kueue) (*v1.ServiceAccount, bool, error) {
+	required := resourceread.ReadServiceAccountV1OrDie(bindata.MustAsset("assets/kueue-operator/serviceaccount.yaml"))
+	required.Namespace = kueue.Namespace
+	ownerReference := metav1.OwnerReference{
+		APIVersion: "operator.openshift.io/v1alpha1",
+		Kind:       "Kueue",
+		Name:       kueue.Name,
+		UID:        kueue.UID,
+	}
+	required.OwnerReferences = []metav1.OwnerReference{
+		ownerReference,
+	}
+	controller.EnsureOwnerRef(required, ownerReference)
+
+	return resourceapply.ApplyServiceAccount(c.ctx, c.kubeClient.CoreV1(), c.eventRecorder, required)
 }
 
 func (c *TargetConfigReconciler) manageMutatingWebhook(kueue *kueuev1alpha1.Kueue) (*admissionregistrationv1.MutatingWebhookConfiguration, bool, error) {
@@ -322,9 +366,28 @@ func (c *TargetConfigReconciler) manageRoleBindings(kueue *kueuev1alpha1.Kueue, 
 			continue
 		}
 		required.Subjects[i].Namespace = kueue.Namespace
-		required.Subjects[i].Name = KueueServiceAccount
 	}
 	return resourceapply.ApplyRoleBinding(c.ctx, c.kubeClient.RbacV1(), c.eventRecorder, required)
+}
+
+func (c *TargetConfigReconciler) manageClusterRoleBindings(kueue *kueuev1alpha1.Kueue, assetDir string) (*rbacv1.ClusterRoleBinding, bool, error) {
+	required := resourceread.ReadClusterRoleBindingV1OrDie(bindata.MustAsset(assetDir))
+	ownerReference := metav1.OwnerReference{
+		APIVersion: "operator.openshift.io/v1alpha1",
+		Kind:       "Kueue",
+		Name:       kueue.Name,
+		UID:        kueue.UID,
+	}
+	required.OwnerReferences = []metav1.OwnerReference{
+		ownerReference,
+	}
+	controller.EnsureOwnerRef(required, ownerReference)
+
+	required.Namespace = kueue.Namespace
+	for i := range required.Subjects {
+		required.Subjects[i].Namespace = kueue.Namespace
+	}
+	return resourceapply.ApplyClusterRoleBinding(c.ctx, c.kubeClient.RbacV1(), c.eventRecorder, required)
 }
 
 func (c *TargetConfigReconciler) manageRole(kueue *kueuev1alpha1.Kueue, assetPath string) (*rbacv1.Role, bool, error) {
@@ -368,6 +431,9 @@ func (c *TargetConfigReconciler) manageClusterRoles(kueue *kueuev1alpha1.Kueue) 
 		assetPath := fmt.Sprintf("assets/kueue-operator/clusterrole_%d.yml", i)
 		clusterRoleName := fmt.Sprintf("clusterrole/clusterrole_%d.yml", i)
 		required := resourceread.ReadClusterRoleV1OrDie(bindata.MustAsset(assetPath))
+		if required.AggregationRule != nil {
+			continue
+		}
 		ownerReference := metav1.OwnerReference{
 			APIVersion: "operator.openshift.io/v1alpha1",
 			Kind:       "Kueue",
@@ -397,8 +463,8 @@ func (c *TargetConfigReconciler) manageCustomResources(kueue *kueuev1alpha1.Kueu
 	returnMap := make(map[string]string, 11)
 	// This is hardcoded due to the amount of custom resources that kueue has.
 	for i := 0; i < 11; i++ {
-		assetPath := fmt.Sprintf("assets/kueue-operator/crd%d.yml", i)
-		crdName := fmt.Sprintf("crd/crd%d.yml", i)
+		assetPath := fmt.Sprintf("assets/kueue-operator/crd_%d.yml", i)
+		crdName := fmt.Sprintf("crd/crd_%d.yml", i)
 		required := resourceread.ReadCustomResourceDefinitionV1OrDie(bindata.MustAsset(assetPath))
 		ownerReference := metav1.OwnerReference{
 			APIVersion: "operator.openshift.io/v1alpha1",
@@ -447,19 +513,6 @@ func (c *TargetConfigReconciler) manageDeployment(kueueoperator *kueuev1alpha1.K
 		for pat, img := range images {
 			if required.Spec.Template.Spec.Containers[i].Image == pat {
 				required.Spec.Template.Spec.Containers[i].Image = img
-				break
-			}
-		}
-	}
-
-	configmaps := map[string]string{
-		"${CONFIGMAP}": KueueConfigMap,
-	}
-
-	for i := range required.Spec.Template.Spec.Volumes {
-		for pat, configmap := range configmaps {
-			if required.Spec.Template.Spec.Volumes[i].ConfigMap.Name == pat {
-				required.Spec.Template.Spec.Volumes[i].ConfigMap.Name = configmap
 				break
 			}
 		}
