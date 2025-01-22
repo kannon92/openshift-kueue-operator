@@ -25,6 +25,8 @@ import (
 	"github.com/openshift/library-go/pkg/controller"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/utils/ptr"
+
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiextv1 "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -165,6 +167,16 @@ func (c TargetConfigReconciler) sync(item queueItem) error {
 		specAnnotations["serviceaccounts/kueue-operator"] = resourceVersion
 	}
 
+	if secret, _, err := c.manageSecret(kueue); err != nil {
+		return err
+	} else {
+		resourceVersion := "0"
+		if secret != nil { // SyncConfigMap can return nil
+			resourceVersion = secret.ObjectMeta.ResourceVersion
+		}
+		specAnnotations["secret/kueue-webhook-server-cert"] = resourceVersion
+	}
+
 	if roleBindings, _, err := c.manageRole(kueue, "assets/kueue-operator/role-leader-election.yaml"); err != nil {
 		return err
 	} else {
@@ -242,13 +254,6 @@ func (c TargetConfigReconciler) sync(item queueItem) error {
 		}
 		specAnnotations["clusterrolebinding/webhook-service"] = resourceVersion
 	}
-	if _, _, err := c.manageMutatingWebhook(kueue); err != nil {
-		return err
-	}
-
-	if _, _, err := c.manageValidatingWebhook(kueue); err != nil {
-		return err
-	}
 
 	deployment, _, err := c.manageDeployment(kueue, specAnnotations)
 	if err != nil {
@@ -259,7 +264,16 @@ func (c TargetConfigReconciler) sync(item queueItem) error {
 		resourcemerge.SetDeploymentGeneration(&status.Generations, deployment)
 		return nil
 	})
+
 	if err != nil {
+		return err
+	}
+
+	if _, _, err := c.manageMutatingWebhook(kueue); err != nil {
+		return err
+	}
+
+	if _, _, err := c.manageValidatingWebhook(kueue); err != nil {
 		return err
 	}
 
@@ -307,6 +321,23 @@ func (c *TargetConfigReconciler) manageServiceAccount(kueue *kueuev1alpha1.Kueue
 	controller.EnsureOwnerRef(required, ownerReference)
 
 	return resourceapply.ApplyServiceAccount(c.ctx, c.kubeClient.CoreV1(), c.eventRecorder, required)
+}
+
+func (c *TargetConfigReconciler) manageSecret(kueue *kueuev1alpha1.Kueue) (*v1.Secret, bool, error) {
+	required := resourceread.ReadSecretV1OrDie(bindata.MustAsset("assets/kueue-operator/secret.yaml"))
+	required.Namespace = kueue.Namespace
+	ownerReference := metav1.OwnerReference{
+		APIVersion: "operator.openshift.io/v1alpha1",
+		Kind:       "Kueue",
+		Name:       kueue.Name,
+		UID:        kueue.UID,
+	}
+	required.OwnerReferences = []metav1.OwnerReference{
+		ownerReference,
+	}
+	controller.EnsureOwnerRef(required, ownerReference)
+
+	return resourceapply.ApplySecret(c.ctx, c.kubeClient.CoreV1(), c.eventRecorder, required)
 }
 
 func (c *TargetConfigReconciler) manageMutatingWebhook(kueue *kueuev1alpha1.Kueue) (*admissionregistrationv1.MutatingWebhookConfiguration, bool, error) {
@@ -506,18 +537,7 @@ func (c *TargetConfigReconciler) manageDeployment(kueueoperator *kueuev1alpha1.K
 	}
 	controller.EnsureOwnerRef(required, ownerReference)
 
-	images := map[string]string{
-		"${IMAGE}": kueueoperator.Spec.Image,
-	}
-	for i := range required.Spec.Template.Spec.Containers {
-		for pat, img := range images {
-			if required.Spec.Template.Spec.Containers[i].Image == pat {
-				required.Spec.Template.Spec.Containers[i].Image = img
-				break
-			}
-		}
-	}
-
+	required.Spec.Template.Spec.Containers[0].Image = kueueoperator.Spec.Image
 	switch kueueoperator.Spec.LogLevel {
 	case operatorv1.Normal:
 		required.Spec.Template.Spec.Containers[0].Args = append(required.Spec.Template.Spec.Containers[0].Args, fmt.Sprintf("-v=%d", 2))
@@ -531,14 +551,18 @@ func (c *TargetConfigReconciler) manageDeployment(kueueoperator *kueuev1alpha1.K
 		required.Spec.Template.Spec.Containers[0].Args = append(required.Spec.Template.Spec.Containers[0].Args, fmt.Sprintf("-v=%d", 2))
 	}
 
-	resourcemerge.MergeMap(resourcemerge.BoolPtr(false), &required.Spec.Template.Annotations, specAnnotations)
+	resourcemerge.MergeMap(ptr.To(false), &required.Spec.Template.Annotations, specAnnotations)
 
-	return resourceapply.ApplyDeployment(
+	deploy, flag, err := resourceapply.ApplyDeployment(
 		c.ctx,
 		c.kubeClient.AppsV1(),
 		c.eventRecorder,
 		required,
 		resourcemerge.ExpectedDeploymentGeneration(required, kueueoperator.Status.Generations))
+	if err != nil {
+		klog.InfoS("Deployment error", "Deployment", deploy)
+	}
+	return deploy, flag, err
 }
 
 // Run starts the kube-scheduler and blocks until stopCh is closed.

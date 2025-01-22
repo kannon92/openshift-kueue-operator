@@ -10,5 +10,5 @@ spec:
   image: "registry.k8s.io/kueue/kueue:v0.10.0"
   config:
     integrations:
-      frameworks:
+     frameworks:
       - "batch/job" 
