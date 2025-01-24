@@ -13,14 +13,14 @@ import (
 	"github.com/openshift/kueue-operator/pkg/builders/configmap"
 	kueueconfigclient "github.com/openshift/kueue-operator/pkg/generated/clientset/versioned/typed/kueueoperator/v1alpha1"
 	operatorclientinformers "github.com/openshift/kueue-operator/pkg/generated/informers/externalversions/kueueoperator/v1alpha1"
+	"github.com/openshift/kueue-operator/pkg/namespace"
+	"github.com/openshift/kueue-operator/pkg/operator/operatorclient"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceread"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
-
-	"github.com/openshift/kueue-operator/pkg/operator/operatorclient"
 
 	"github.com/openshift/library-go/pkg/controller"
 	appsv1 "k8s.io/api/apps/v1"
@@ -59,6 +59,7 @@ type TargetConfigReconciler struct {
 	queue                      workqueue.RateLimitingInterface
 	kubeInformersForNamespaces v1helpers.KubeInformersForNamespaces
 	crdClient                  apiextv1.ApiextensionsV1Interface
+	operatorNamespace          string
 }
 
 func NewTargetConfigReconciler(
@@ -84,6 +85,7 @@ func NewTargetConfigReconciler(
 		queue:                      workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "TargetConfigReconciler"),
 		kubeInformersForNamespaces: kubeInformersForNamespaces,
 		crdClient:                  crdClient,
+		operatorNamespace:          namespace.GetNamespace(),
 	}
 
 	_, err := operatorClientInformer.Informer().AddEventHandler(c.eventHandler(queueItem{kind: "kueue"}))
@@ -91,7 +93,7 @@ func NewTargetConfigReconciler(
 		return nil, err
 	}
 
-	_, err = kubeInformersForNamespaces.InformersFor(operatorclient.OperatorNamespace).Core().V1().ConfigMaps().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+	_, err = kubeInformersForNamespaces.InformersFor(c.operatorNamespace).Core().V1().ConfigMaps().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {},
 		UpdateFunc: func(old, new interface{}) {
 			cm, ok := old.(*v1.ConfigMap)
@@ -118,22 +120,14 @@ func NewTargetConfigReconciler(
 }
 
 func (c TargetConfigReconciler) sync(item queueItem) error {
-	kueue, err := c.operatorClient.Kueues(operatorclient.OperatorNamespace).Get(c.ctx, operatorclient.OperatorConfigName, metav1.GetOptions{})
+	kueue, err := c.operatorClient.Kueues(c.operatorNamespace).Get(c.ctx, operatorclient.OperatorConfigName, metav1.GetOptions{})
 	if err != nil {
-		klog.ErrorS(err, "unable to get operator configuration", "namespace", operatorclient.OperatorNamespace, "kueue", operatorclient.OperatorConfigName)
+		klog.ErrorS(err, "unable to get operator configuration", "namespace", c.operatorNamespace, "kueue", operatorclient.OperatorConfigName)
 		return err
 	}
 
 	specAnnotations := map[string]string{
 		"kueueoperator.operator.openshift.io/cluster": strconv.FormatInt(kueue.Generation, 10),
-	}
-
-	// Skip any sync triggered by other than the Kueue CM changes
-	if item.kind == "configmap" {
-		if item.name != KueueConfigMap {
-			return nil
-		}
-		klog.Infof("configmap %q changed, forcing redeployment", KueueConfigMap)
 	}
 
 	if cm, _, err := c.manageConfigMap(kueue); err != nil {
@@ -150,6 +144,7 @@ func (c TargetConfigReconciler) sync(item queueItem) error {
 	crdAnnotations, crdErr := c.manageCustomResources(kueue)
 
 	if crdErr != nil {
+		klog.Error("unable to manage custom resource")
 		return crdErr
 	}
 
@@ -158,6 +153,7 @@ func (c TargetConfigReconciler) sync(item queueItem) error {
 	}
 
 	if sa, _, err := c.manageServiceAccount(kueue); err != nil {
+		klog.Error("unable to manage service account")
 		return err
 	} else {
 		resourceVersion := "0"
@@ -168,6 +164,7 @@ func (c TargetConfigReconciler) sync(item queueItem) error {
 	}
 
 	if secret, _, err := c.manageSecret(kueue); err != nil {
+		klog.Error("unable to create secret")
 		return err
 	} else {
 		resourceVersion := "0"
@@ -178,6 +175,7 @@ func (c TargetConfigReconciler) sync(item queueItem) error {
 	}
 
 	if roleBindings, _, err := c.manageRole(kueue, "assets/kueue-operator/role-leader-election.yaml"); err != nil {
+		klog.Error("unable to create role leader-election")
 		return err
 	} else {
 		resourceVersion := "0"
@@ -188,6 +186,7 @@ func (c TargetConfigReconciler) sync(item queueItem) error {
 	}
 
 	if roleBindings, _, err := c.manageRoleBindings(kueue, "assets/kueue-operator/rolebinding-leader-election.yaml"); err != nil {
+		klog.Error("unable to bind role leader-election")
 		return err
 	} else {
 		resourceVersion := "0"
@@ -198,6 +197,7 @@ func (c TargetConfigReconciler) sync(item queueItem) error {
 	}
 
 	if service, _, err := c.manageService(kueue, "assets/kueue-operator/metrics-service.yaml"); err != nil {
+		klog.Error("unable to manage metrics service")
 		return err
 	} else {
 		resourceVersion := "0"
@@ -208,6 +208,7 @@ func (c TargetConfigReconciler) sync(item queueItem) error {
 	}
 
 	if service, _, err := c.manageService(kueue, "assets/kueue-operator/visibility-service.yaml"); err != nil {
+		klog.Error("unable to manage visbility service")
 		return err
 	} else {
 		resourceVersion := "0"
@@ -218,6 +219,7 @@ func (c TargetConfigReconciler) sync(item queueItem) error {
 	}
 
 	if service, _, err := c.manageService(kueue, "assets/kueue-operator/webhook-service.yaml"); err != nil {
+		klog.Error("unable to manage webhook service")
 		return err
 	} else {
 		resourceVersion := "0"
@@ -229,34 +231,60 @@ func (c TargetConfigReconciler) sync(item queueItem) error {
 
 	annotations, err := c.manageClusterRoles(kueue)
 	if err != nil {
+		klog.Error("unable to manage cluster roles")
 		return err
 	}
 	for key, val := range annotations {
 		specAnnotations[key] = val
 	}
 
+	if openshiftClusterRole, _, err := c.manageOpenshiftClusterRolesForKueue(kueue); err != nil {
+		klog.Error("unable to manage openshift cluster roles")
+		return err
+	} else {
+		resourceVersion := "0"
+		if openshiftClusterRole != nil { // SyncConfigMap can return nil
+			resourceVersion = openshiftClusterRole.ObjectMeta.ResourceVersion
+		}
+		specAnnotations["clusterrole/openshift-roles"] = resourceVersion
+	}
+
+	if openshiftClusterRoleBinding, _, err := c.manageOpenshiftClusterRolesBindingForKueue(kueue); err != nil {
+		klog.Error("unable to manage openshift cluster roles binding")
+		return err
+	} else {
+		resourceVersion := "0"
+		if openshiftClusterRoleBinding != nil { // SyncConfigMap can return nil
+			resourceVersion = openshiftClusterRoleBinding.ObjectMeta.ResourceVersion
+		}
+		specAnnotations["clusterrolebinding/openshift-roles"] = resourceVersion
+	}
+
 	if service, _, err := c.manageClusterRoleBindings(kueue, "assets/kueue-operator/clusterrolebinding-kube-proxy.yaml"); err != nil {
+		klog.Error("unable to manage kube proxy cluster roles")
 		return err
 	} else {
 		resourceVersion := "0"
 		if service != nil { // SyncConfigMap can return nil
 			resourceVersion = service.ObjectMeta.ResourceVersion
 		}
-		specAnnotations["clusterrolebinding/webhook-service"] = resourceVersion
+		specAnnotations["clusterrolebinding/kube-proxy"] = resourceVersion
 	}
 
 	if service, _, err := c.manageClusterRoleBindings(kueue, "assets/kueue-operator/clusterrolebinding-kueue-manager-role.yaml"); err != nil {
+		klog.Error("unable to manage cluster role kueue-manager")
 		return err
 	} else {
 		resourceVersion := "0"
 		if service != nil { // SyncConfigMap can return nil
 			resourceVersion = service.ObjectMeta.ResourceVersion
 		}
-		specAnnotations["clusterrolebinding/webhook-service"] = resourceVersion
+		specAnnotations["clusterrolebinding/kueue-manager-role"] = resourceVersion
 	}
 
 	deployment, _, err := c.manageDeployment(kueue, specAnnotations)
 	if err != nil {
+		klog.Error("unable to manage deployment")
 		return err
 	}
 
@@ -270,10 +298,12 @@ func (c TargetConfigReconciler) sync(item queueItem) error {
 	}
 
 	if _, _, err := c.manageMutatingWebhook(kueue); err != nil {
+		klog.Error("unable to manage mutating webhook")
 		return err
 	}
 
 	if _, _, err := c.manageValidatingWebhook(kueue); err != nil {
+		klog.Error("unable to manage validating webhook")
 		return err
 	}
 
@@ -281,27 +311,27 @@ func (c TargetConfigReconciler) sync(item queueItem) error {
 }
 
 func (c *TargetConfigReconciler) manageConfigMap(kueue *kueuev1alpha1.Kueue) (*v1.ConfigMap, bool, error) {
-	required, err := c.kubeClient.CoreV1().ConfigMaps(operatorclient.OperatorNamespace).Get(context.TODO(), KueueConfigMap, metav1.GetOptions{})
+	required, err := c.kubeClient.CoreV1().ConfigMaps(c.operatorNamespace).Get(context.TODO(), KueueConfigMap, metav1.GetOptions{})
 
 	if errors.IsNotFound(err) {
 		return c.buildAndApplyConfigMap(nil, kueue.Spec.Config)
 	} else if err != nil {
-		klog.Errorf("Cannot load ConfigMap %s for the kueue operator", operatorclient.OperatorNamespace)
+		klog.Errorf("Cannot load ConfigMap %s/kueue-manager-config for the kueue operator", c.operatorNamespace)
 		return nil, false, err
 	}
 	return c.buildAndApplyConfigMap(required, kueue.Spec.Config)
 }
 
 func (c *TargetConfigReconciler) buildAndApplyConfigMap(oldCfgMap *v1.ConfigMap, kueueCfg kueuev1alpha1.KueueConfiguration) (*v1.ConfigMap, bool, error) {
-	cfgMap, buildErr := configmap.BuildConfigMap(operatorclient.OperatorNamespace, kueueCfg)
+	cfgMap, buildErr := configmap.BuildConfigMap(c.operatorNamespace, kueueCfg)
 	if buildErr != nil {
-		klog.Errorf("Cannot build configmap %s for kueue", operatorclient.OperatorNamespace)
+		klog.Errorf("Cannot build configmap %s for kueue", c.operatorNamespace)
 		return nil, false, buildErr
 	}
 	if oldCfgMap != nil && oldCfgMap.Data["controller_manager_config.yaml"] == cfgMap.Data["controller_manager_config.yaml"] {
 		return nil, true, nil
 	}
-	klog.InfoS("Configmap difference detected", "Namespace", operatorclient.OperatorNamespace, "ConfigMap", KueueConfigMap)
+	klog.InfoS("Configmap difference detected", "Namespace", c.operatorNamespace, "ConfigMap", KueueConfigMap)
 	return resourceapply.ApplyConfigMap(c.ctx, c.kubeClient.CoreV1(), c.eventRecorder, cfgMap)
 
 }
@@ -490,6 +520,70 @@ func (c *TargetConfigReconciler) manageClusterRoles(kueue *kueuev1alpha1.Kueue) 
 	return returnMap, nil
 }
 
+func (c *TargetConfigReconciler) manageOpenshiftClusterRolesBindingForKueue(kueue *kueuev1alpha1.Kueue) (*rbacv1.ClusterRoleBinding, bool, error) {
+	clusterRoleBinding := &rbacv1.ClusterRoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "kueue-openshift-cluster-role-binding",
+		},
+		Subjects: []rbacv1.Subject{
+			{
+				Kind:      "ServiceAccount",
+				Name:      "kueue-controller-manager",
+				Namespace: kueue.Namespace,
+			},
+		},
+		RoleRef: rbacv1.RoleRef{
+			APIGroup: "rbac.authorization.k8s.io",
+			Kind:     "ClusterRole",
+			Name:     "kueue-openshift-roles",
+		},
+	}
+
+	ownerReference := metav1.OwnerReference{
+		APIVersion: "operator.openshift.io/v1alpha1",
+		Kind:       "Kueue",
+		Name:       kueue.Name,
+		UID:        kueue.UID,
+	}
+	clusterRoleBinding.OwnerReferences = []metav1.OwnerReference{
+		ownerReference,
+	}
+	controller.EnsureOwnerRef(clusterRoleBinding, ownerReference)
+	return resourceapply.ApplyClusterRoleBinding(c.ctx, c.kubeClient.RbacV1(), c.eventRecorder, clusterRoleBinding)
+}
+
+func (c *TargetConfigReconciler) manageOpenshiftClusterRolesForKueue(kueue *kueuev1alpha1.Kueue) (*rbacv1.ClusterRole, bool, error) {
+	clusterRole := &rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{
+				"app.kubernetes.io/component": "controller",
+				"app.kubernetes.io/name":      "kueue",
+				"control-plane":               "controller-manager",
+			},
+			Name: "kueue-openshift-roles",
+		},
+		Rules: []rbacv1.PolicyRule{
+			{
+				APIGroups: []string{"config.openshift.io"},
+				Resources: []string{"infrastructures", "apiservers"},
+				Verbs:     []string{"get", "watch", "list"},
+			},
+		},
+	}
+
+	ownerReference := metav1.OwnerReference{
+		APIVersion: "operator.openshift.io/v1alpha1",
+		Kind:       "Kueue",
+		Name:       kueue.Name,
+		UID:        kueue.UID,
+	}
+	clusterRole.OwnerReferences = []metav1.OwnerReference{
+		ownerReference,
+	}
+	controller.EnsureOwnerRef(clusterRole, ownerReference)
+	return resourceapply.ApplyClusterRole(c.ctx, c.kubeClient.RbacV1(), c.eventRecorder, clusterRole)
+}
+
 func (c *TargetConfigReconciler) manageCustomResources(kueue *kueuev1alpha1.Kueue) (map[string]string, error) {
 	returnMap := make(map[string]string, 11)
 	// This is hardcoded due to the amount of custom resources that kueue has.
@@ -540,15 +634,15 @@ func (c *TargetConfigReconciler) manageDeployment(kueueoperator *kueuev1alpha1.K
 	required.Spec.Template.Spec.Containers[0].Image = kueueoperator.Spec.Image
 	switch kueueoperator.Spec.LogLevel {
 	case operatorv1.Normal:
-		required.Spec.Template.Spec.Containers[0].Args = append(required.Spec.Template.Spec.Containers[0].Args, fmt.Sprintf("-v=%d", 2))
+		required.Spec.Template.Spec.Containers[0].Args = append(required.Spec.Template.Spec.Containers[0].Args, fmt.Sprintf("--zap-log-level=%d", 2))
 	case operatorv1.Debug:
-		required.Spec.Template.Spec.Containers[0].Args = append(required.Spec.Template.Spec.Containers[0].Args, fmt.Sprintf("-v=%d", 4))
+		required.Spec.Template.Spec.Containers[0].Args = append(required.Spec.Template.Spec.Containers[0].Args, fmt.Sprintf("--zap-log-level=%d", 4))
 	case operatorv1.Trace:
-		required.Spec.Template.Spec.Containers[0].Args = append(required.Spec.Template.Spec.Containers[0].Args, fmt.Sprintf("-v=%d", 6))
+		required.Spec.Template.Spec.Containers[0].Args = append(required.Spec.Template.Spec.Containers[0].Args, fmt.Sprintf("--zap-log-level=%d", 6))
 	case operatorv1.TraceAll:
-		required.Spec.Template.Spec.Containers[0].Args = append(required.Spec.Template.Spec.Containers[0].Args, fmt.Sprintf("-v=%d", 8))
+		required.Spec.Template.Spec.Containers[0].Args = append(required.Spec.Template.Spec.Containers[0].Args, fmt.Sprintf("--zap-log-level=%d", 8))
 	default:
-		required.Spec.Template.Spec.Containers[0].Args = append(required.Spec.Template.Spec.Containers[0].Args, fmt.Sprintf("-v=%d", 2))
+		required.Spec.Template.Spec.Containers[0].Args = append(required.Spec.Template.Spec.Containers[0].Args, fmt.Sprintf("--zap-log-level=%d", 2))
 	}
 
 	resourcemerge.MergeMap(ptr.To(false), &required.Spec.Template.Annotations, specAnnotations)

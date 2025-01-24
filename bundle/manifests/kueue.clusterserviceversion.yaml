@@ -236,7 +236,7 @@ spec:
                   value: openshift-kueue-operator
                 - name: RELATED_IMAGE_OPERAND_IMAGE
                   value: registry.k8s.io/kueue/kueue:v0.10.0
-                image: quay.io/kevin-oss/kueue-operator:jan21-433
+                image: quay.io/kevin-oss/kueue-operator:jan22440
                 imagePullPolicy: Always
                 name: openshift-kueue-operator
                 ports:

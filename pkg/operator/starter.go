@@ -7,6 +7,7 @@ import (
 	openshiftrouteclientset "github.com/openshift/client-go/route/clientset/versioned"
 	operatorconfigclient "github.com/openshift/kueue-operator/pkg/generated/clientset/versioned"
 	operatorclientinformers "github.com/openshift/kueue-operator/pkg/generated/informers/externalversions"
+	"github.com/openshift/kueue-operator/pkg/namespace"
 	"github.com/openshift/kueue-operator/pkg/operator/operatorclient"
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
 	"github.com/openshift/library-go/pkg/operator/loglevel"
@@ -40,7 +41,7 @@ func RunOperator(ctx context.Context, cc *controllercmd.ControllerContext) error
 
 	kubeInformersForNamespaces := v1helpers.NewKubeInformersForNamespaces(kubeClient,
 		"",
-		operatorclient.OperatorNamespace,
+		namespace.GetNamespace(),
 	)
 
 	operatorConfigClient, err := operatorconfigclient.NewForConfig(cc.KubeConfig)
