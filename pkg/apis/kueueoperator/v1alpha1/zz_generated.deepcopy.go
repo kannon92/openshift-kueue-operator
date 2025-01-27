@@ -69,6 +69,11 @@ func (in *KueueConfiguration) DeepCopyInto(out *KueueConfiguration) {
 			(*out)[key] = val
 		}
 	}
+	if in.Resources != nil {
+		in, out := &in.Resources, &out.Resources
+		*out = new(v1beta1.Resources)
+		(*in).DeepCopyInto(*out)
+	}
 	return
 }
 

@@ -43,6 +43,10 @@ type KueueConfiguration struct {
 	// Feature gates are advanced features for Kueue
 	// +optional
 	FeatureGates map[string]bool `json:"featureGates,omitempty"`
+	// Resources provides additional configuration options for handling the resources.
+	// Supports https://github.com/kubernetes-sigs/kueue/blob/release-0.10/keps/2937-resource-transformer/README.md
+	// +optional
+	Resources *configapi.Resources `json:"resources,omitempty"`
 }
 
 // KueueStatus defines the observed state of Kueue

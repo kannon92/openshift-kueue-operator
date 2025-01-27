@@ -77,5 +77,6 @@ func defaultKueueConfigurationTemplate(kueueCfg kueue.KueueConfiguration) *confi
 		InternalCertManagement: &configapi.InternalCertManagement{
 			Enable: ptr.To(false),
 		},
+		Resources: kueueCfg.Resources,
 	}
 }

@@ -190,6 +190,46 @@ spec:
                                   additionalProperties:
                                     type: string
                               x-kubernetes-map-type: atomic
+                    resources:
+                      description: |-
+                        Resources provides additional configuration options for handling the resources.
+                        Supports https://github.com/kubernetes-sigs/kueue/blob/release-0.10/keps/2937-resource-transformer/README.md
+                      type: object
+                      properties:
+                        excludeResourcePrefixes:
+                          description: ExcludedResourcePrefixes defines which resources should be ignored by Kueue
+                          type: array
+                          items:
+                            type: string
+                        transformations:
+                          description: |-
+                            Transformations defines how to transform PodSpec resources into Workload resource requests.
+                            This is intended to be a map with Input as the key (enforced by validation code)
+                          type: array
+                          items:
+                            type: object
+                            required:
+                              - input
+                            properties:
+                              input:
+                                description: Input is the name of the input resource.
+                                type: string
+                              outputs:
+                                description: |-
+                                  Outputs specifies the output resources and quantities per unit of input resource.
+                                  An empty Outputs combined with a `Replace` Strategy causes the Input resource to be ignored by Kueue.
+                                type: object
+                                additionalProperties:
+                                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                  anyOf:
+                                    - type: integer
+                                    - type: string
+                                  x-kubernetes-int-or-string: true
+                              strategy:
+                                description: |-
+                                  Strategy specifies if the input resource should be replaced or retained.
+                                  Defaults to Retain
+                                type: string
                     waitForPodsReady:
                       description: WaitForPodsReady configures gang admission
                       type: object
