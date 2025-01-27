@@ -24,7 +24,7 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: [ "ALL" ]
-          image: quay.io/kevin-oss/kueue-operator:jan23148
+          image: quay.io/kevin-oss/kueue-operator:jan24-305
           volumeMounts:
             - name: tmp
               mountPath: "/tmp"

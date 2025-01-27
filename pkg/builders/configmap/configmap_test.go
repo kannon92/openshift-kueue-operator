@@ -55,6 +55,8 @@ health:
 integrations:
   frameworks:
   - batch.job
+internalCertManagement:
+  enable: false
 kind: Configuration
 manageJobsWithoutQueueName: false
 metrics:

@@ -74,5 +74,8 @@ func defaultKueueConfigurationTemplate(kueueCfg kueue.KueueConfiguration) *confi
 		WaitForPodsReady:           kueueCfg.WaitForPodsReady,
 		ManageJobsWithoutQueueName: false,
 		Integrations:               &kueueCfg.Integrations,
+		InternalCertManagement: &configapi.InternalCertManagement{
+			Enable: ptr.To(false),
+		},
 	}
 }
