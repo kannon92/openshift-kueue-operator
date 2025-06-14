@@ -15,6 +15,7 @@ import (
 	kueuev1 "github.com/openshift/kueue-operator/pkg/apis/kueueoperator/v1"
 	"github.com/openshift/kueue-operator/pkg/cert"
 	"github.com/openshift/kueue-operator/pkg/configmap"
+	"github.com/openshift/kueue-operator/pkg/deployment"
 	kueueconfigclient "github.com/openshift/kueue-operator/pkg/generated/clientset/versioned/typed/kueueoperator/v1"
 	operatorclientinformers "github.com/openshift/kueue-operator/pkg/generated/informers/externalversions/kueueoperator/v1"
 	"github.com/openshift/kueue-operator/pkg/namespace"
@@ -967,6 +968,8 @@ func (c *TargetConfigReconciler) manageDeployment(kueueoperator *kueuev1.Kueue, 
 		required.Spec.Template.Spec.Containers[0].Args = append(required.Spec.Template.Spec.Containers[0].Args, fmt.Sprintf("--zap-log-level=%d", 2))
 	}
 
+	// remove limits from the deployment.
+	required = deployment.RemoveResourceLimitsFromDeployment(required)
 	resourcemerge.MergeMap(ptr.To(false), &required.Spec.Template.Annotations, specAnnotations)
 
 	deploy, flag, err := resourceapply.ApplyDeployment(
