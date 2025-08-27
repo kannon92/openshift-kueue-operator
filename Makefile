@@ -223,6 +223,9 @@ e2e-ci-test: ginkgo
 	@echo "Running operator e2e tests..."
 	$(GINKGO) --no-color -v ./test/e2e/...
 
+e2e-submodule-test:
+	$(GINKGO) --no-color -v upstream/kueue/src/test/e2e/singlecluster
+
 .PHONY: e2e-upstream-test
 e2e-upstream-test: get-kueue-image
 	@echo "Running upstream e2e tests..."
