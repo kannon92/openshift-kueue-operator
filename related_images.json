@@ -1,14 +1,14 @@
 [
   {
     "name": "operator",
-    "image": "registry.redhat.io/kueue/kueue-rhel9-operator@sha256:28f04ab5a98c5b130cf0e727875ad109a37a83fe211cd4e5f1df1d2a030821ef"
+    "image": "registry.redhat.io/kueue/kueue-rhel9-operator@sha256:4935f519beee7155f5d3bc150933f7e198e0d9705f96c3ebf73bb4e230727e03"
   },
   {
     "name": "must-gather",
-    "image": "registry.redhat.io/kueue/kueue-must-gather-rhel9@sha256:e2b89e737e84dfd2295a54992232082cfc62d83dac06b0b9eb98911b94f6cff3"
+    "image": "registry.redhat.io/kueue/kueue-must-gather-rhel9@sha256:89656a2c023a2e94d3b5faa8f41fee92f8fb9ab6a31cc820292067273721738b"
   },
   {
     "name": "operand",
-    "image": "registry.redhat.io/kueue/kueue-rhel9@sha256:3453591d0beb0ef7593bdc442745478404e7698624ebc2403b35d0970ee0359b"
+    "image": "registry.redhat.io/kueue/kueue-rhel9@sha256:483b49dc43a60fe61b8ca02a5b40b5e96c4a27ee16c569ac2aa6b3f8ed389a79"
   }
 ]
